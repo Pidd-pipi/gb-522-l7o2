@@ -17,7 +17,7 @@ docker compose ps
 | 账号 | 角色 | 主要权限 |
 | --- | --- | --- |
 | `analyst` | analyst | 线路维护、轨迹导入和检测、案例分析 |
-| `reviewer` | reviewer | 基线设置、事件复核、案例确认/关闭、审计检索 |
+| `reviewer` | reviewer | 发射端偏移修正、基线设置、事件复核、案例确认/关闭、审计检索 |
 | `admin` | admin | 上述全部权限 |
 
 停止并移除本项目数据卷：
@@ -28,9 +28,9 @@ docker compose down -v --remove-orphans
 
 ## 功能
 
-- 线路档案：校验线路长度和折射率，查看历史轨迹，由 reviewer/admin 设置基线。
-- 轨迹分析：导入离线采样，记录去噪窗口、检测阈值和合并窗口，缩放真实 API 曲线。
-- 事件复核：按线路、类型和复核状态筛选，保留算法原值并单独保存人工修订。
+- 线路档案：校验线路长度、折射率和发射端尾纤偏移，查看历史轨迹，由 reviewer/admin 设置基线。
+- 轨迹分析：导入离线采样，导入时冻结线路长度、折射率与发射端偏移快照；记录去噪窗口、检测阈值和合并窗口，缩放真实 API 曲线。
+- 事件复核：按线路、类型和复核状态筛选，保留算法原值并单独保存人工修订。发射端偏移可由复核员单独修正，其余线路参数由分析员维护。
 - 定位案例：执行基线差异比较，按 `draft -> analyzing -> pending_review -> confirmed -> closed` 流转。
 - 不可变审计：记录轨迹导入、基线变更、算法参数、事件修订、案例确认和关闭，携带 request ID 与前后值摘要。
 
@@ -112,7 +112,7 @@ frontend/src/pages                 五个业务页与登录页
 1. 移动中值去噪：对每个采样使用最多 31 点的奇数窗口，边界处截断窗口。
 2. 噪声底：取轨迹尾部 20% 样本的中位数。
 3. 事件检测：一阶差分绝对值超过阈值的点为峰值，连续峰按窗口合并为幅度最大的一点。
-4. 距离公式：`distance = c * sample_index * sample_interval_ns * 1e-9 / (2 * refractive_index)`，其中 `c = 299792458 m/s`。超过线路长度的候选事件被拒绝。
+4. 距离公式：OTDR 采样距离 `sample_distance = c * sample_index * sample_interval_ns * 1e-9 / (2 * refractive_index)`，其中 `c = 299792458 m/s`；事件在线路上的距离 `route_distance = sample_distance - launch_offset_m`。导入采样时冻结当时的线路长度、折射率与发射端偏移，事件距离始终按这份快照换算，线路档案后续修改不影响历史轨迹、已有事件和案例。缺少快照的历史轨迹按当前线路参数、偏移 0 处理。落在发射端尾纤内（负距离）的峰跳过计数；换算后任何事件超过快照线路长度时检测整体拒绝（400），保留此前的处理参数与事件，并写 `trace.detection_rejected` 审计。
 5. 基线比对：在距离容差内一对一最近匹配，输出新增、消失和损耗增大三类差异与置信度。
 
 状态迁移使用条件更新和 `version` 乐观锁。分析失败回到 `draft` 并保存错误；只有 reviewer/admin 能确认；关闭后不可修改。登录、轨迹导入和分析使用本地内存限流。访问日志不记录 JWT、密码、请求体或完整采样数组。
@@ -136,7 +136,8 @@ npm --prefix frontend run build
 
 - 容器未健康：执行 `docker compose logs postgres backend frontend`，首先检查端口占用和 `JWT_SECRET` 长度。
 - 前端 API 返回 502：确认 backend 为 `healthy`，Nginx 通过 Compose 服务名 `backend:8080` 连接。
-- 轨迹导入被拒绝：确认至少 16 点、无 NaN/Inf，采样范围覆盖线路至少 5%，且不超过 `MAX_TRACE_POINTS`。
+- 轨迹导入被拒绝：确认至少 16 点、无 NaN/Inf，采样范围覆盖发射端偏移之外的线路至少 5%，且不超过 `MAX_TRACE_POINTS`。
+- 事件检测被拒绝（换算后事件超过线路长度）：核对线路发射端尾纤偏移与长度；拒绝时本次检测不落库，旧事件、处理轨迹和参数全部保留，可修正偏移后重试。
 - 案例无法分析：基线和当前轨迹均需先执行事件检测。
 - 确认返回 `STATE_CONFLICT`：刷新案例取得最新 `version`，并确认状态为 `pending_review`。
 

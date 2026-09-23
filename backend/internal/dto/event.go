@@ -18,9 +18,9 @@ type EventQuery struct {
 }
 
 type DetectionSummary struct {
-	TraceID       uint    `json:"trace_id"`
-	DetectedCount int     `json:"detected_count"`
-	NoiseFloorDB  float64 `json:"noise_floor_db"`
-	ThresholdDB   float64 `json:"threshold_db"`
-	RejectedCount int     `json:"rejected_out_of_bounds"`
+	TraceID         uint    `json:"trace_id"`
+	DetectedCount   int     `json:"detected_count"`
+	NoiseFloorDB    float64 `json:"noise_floor_db"`
+	ThresholdDB     float64 `json:"threshold_db"`
+	SkippedPreRoute int     `json:"skipped_pre_route"`
 }

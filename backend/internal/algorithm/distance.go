@@ -22,6 +22,19 @@ func SampleDistance(index int, sampleIntervalNS, refractiveIndex float64) (float
 	return math.Round(distance*100) / 100, nil
 }
 
+// RouteDistance 在 OTDR 采样距离基础上减去发射端尾纤偏移，得到事件在线路上的距离。
+// 落在尾纤内的样本会换算为负距离，由调用方按段过滤。
+func RouteDistance(index int, sampleIntervalNS, refractiveIndex, launchOffsetM float64) (float64, error) {
+	if launchOffsetM < 0 {
+		return 0, fmt.Errorf("launch offset cannot be negative")
+	}
+	distance, err := SampleDistance(index, sampleIntervalNS, refractiveIndex)
+	if err != nil {
+		return 0, err
+	}
+	return math.Round((distance-launchOffsetM)*100) / 100, nil
+}
+
 func ValidRouteDistance(distance, routeLength float64) bool {
 	return !math.IsNaN(distance) && !math.IsInf(distance, 0) && distance >= 0 && distance <= routeLength
 }

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
+	"fiber-otdr-fault-localization/backend/internal/constants"
 	"fiber-otdr-fault-localization/backend/internal/dto"
 	"fiber-otdr-fault-localization/backend/internal/model"
 	"fiber-otdr-fault-localization/backend/internal/repository"
@@ -20,7 +22,7 @@ func (s *RouteService) Create(request dto.CreateRouteRequest, actor Actor) (mode
 	if status == "" {
 		status = "active"
 	}
-	route := model.FiberRoute{RouteCode: strings.ToUpper(strings.TrimSpace(request.RouteCode)), Name: strings.TrimSpace(request.Name), LengthM: request.LengthM, RefractiveIndex: request.RefractiveIndex, LaunchConnector: strings.TrimSpace(request.LaunchConnector), RouteStatus: status}
+	route := model.FiberRoute{RouteCode: strings.ToUpper(strings.TrimSpace(request.RouteCode)), Name: strings.TrimSpace(request.Name), LengthM: request.LengthM, RefractiveIndex: request.RefractiveIndex, LaunchOffsetM: request.LaunchOffsetM, LaunchConnector: strings.TrimSpace(request.LaunchConnector), RouteStatus: status}
 	err := s.store.Transaction(func(tx *repository.Store) error {
 		if _, err := tx.Routes.GetByCode(route.RouteCode); err == nil {
 			return conflict("route code already exists", err)
@@ -76,6 +78,12 @@ func (s *RouteService) Update(id uint, request dto.UpdateRouteRequest, actor Act
 	}
 	beforeSnapshot := snapshot(before)
 	after := before
+	// reviewer 只允许修正发射端尾纤偏移；长度、折射率等线路本体参数仍由 analyst/admin 维护。
+	if actor.Role == constants.RoleReviewer {
+		if request.Name != nil || request.LengthM != nil || request.RefractiveIndex != nil || request.LaunchConnector != nil || request.RouteStatus != nil {
+			return before, &AppError{CodeForbidden, http.StatusForbidden, "reviewers can only update the launch offset", nil}
+		}
+	}
 	if request.Name != nil {
 		after.Name = strings.TrimSpace(*request.Name)
 	}
@@ -84,6 +92,9 @@ func (s *RouteService) Update(id uint, request dto.UpdateRouteRequest, actor Act
 	}
 	if request.RefractiveIndex != nil {
 		after.RefractiveIndex = *request.RefractiveIndex
+	}
+	if request.LaunchOffsetM != nil {
+		after.LaunchOffsetM = *request.LaunchOffsetM
 	}
 	if request.LaunchConnector != nil {
 		after.LaunchConnector = strings.TrimSpace(*request.LaunchConnector)

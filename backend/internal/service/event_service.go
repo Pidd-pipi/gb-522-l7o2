@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"time"
 
 	"fiber-otdr-fault-localization/backend/internal/algorithm"
@@ -53,6 +55,18 @@ func (s *EventService) Detect(traceID uint, request dto.DetectEventsRequest, act
 	if merge == 0 {
 		merge = 3
 	}
+	// 事件距离按导入时冻结的线路快照换算；缺少快照的历史轨迹按当前线路参数、偏移 0 处理。
+	routeLength, refractiveIndex := route.LengthM, route.RefractiveIndex
+	launchOffset := 0.0
+	if trace.RouteLengthSnapshotM != nil {
+		routeLength = *trace.RouteLengthSnapshotM
+	}
+	if trace.RefractiveIndexSnapshot != nil {
+		refractiveIndex = *trace.RefractiveIndexSnapshot
+	}
+	if trace.LaunchOffsetSnapshotM != nil {
+		launchOffset = *trace.LaunchOffsetSnapshotM
+	}
 	filtered, err := algorithm.MovingMedian(raw, window)
 	if err != nil {
 		return dto.DetectionSummary{}, &AppError{CodeAlgorithmInput, 422, "trace denoising failed", err}
@@ -61,8 +75,16 @@ func (s *EventService) Detect(traceID uint, request dto.DetectEventsRequest, act
 	if err != nil {
 		return dto.DetectionSummary{}, &AppError{CodeAlgorithmInput, 422, "noise floor estimation failed", err}
 	}
-	detected, rejected, err := algorithm.Detect(filtered, threshold, merge, trace.SampleIntervalNS, route.RefractiveIndex, route.LengthM)
+	detected, skipped, err := algorithm.Detect(filtered, threshold, merge, trace.SampleIntervalNS, refractiveIndex, launchOffset, routeLength)
 	if err != nil {
+		var outOfBounds *algorithm.OutOfBoundsError
+		if errors.As(err, &outOfBounds) {
+			_ = s.store.Transaction(func(tx *repository.Store) error {
+				params := map[string]any{"denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge, "route_length_m": routeLength, "refractive_index": refractiveIndex, "launch_offset_m": launchOffset, "event_index": outOfBounds.Index, "event_distance_m": outOfBounds.DistanceM}
+				return tx.Audits.Create(audit(actor, "trace.detection_rejected", "TraceCapture", trace.ID, &route.ID, "{}", snapshot(params)))
+			})
+			return dto.DetectionSummary{}, &AppError{CodeInvalidInput, http.StatusBadRequest, fmt.Sprintf("converted event at %.2f m exceeds the %.2f m route; detection rejected and previous results kept", outOfBounds.DistanceM, routeLength), err}
+		}
 		return dto.DetectionSummary{}, &AppError{CodeAlgorithmInput, 422, "event detection failed", err}
 	}
 	events := make([]model.EventMarker, 0, len(detected))
@@ -77,13 +99,13 @@ func (s *EventService) Detect(traceID uint, request dto.DetectEventsRequest, act
 		if err := tx.Events.ReplaceForTrace(trace.ID, events); err != nil {
 			return err
 		}
-		params := map[string]any{"denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge, "noise_floor_db": noise, "detected": len(events), "rejected_out_of_bounds": rejected}
+		params := map[string]any{"denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge, "noise_floor_db": noise, "detected": len(events), "skipped_pre_route": skipped, "route_length_m": routeLength, "refractive_index": refractiveIndex, "launch_offset_m": launchOffset}
 		return tx.Audits.Create(audit(actor, "trace.events_detected", "TraceCapture", trace.ID, &route.ID, "{}", snapshot(params)))
 	})
 	if err != nil {
 		return dto.DetectionSummary{}, internal("save detected events failed", err)
 	}
-	return dto.DetectionSummary{TraceID: trace.ID, DetectedCount: len(events), NoiseFloorDB: noise, ThresholdDB: threshold, RejectedCount: rejected}, nil
+	return dto.DetectionSummary{TraceID: trace.ID, DetectedCount: len(events), NoiseFloorDB: noise, ThresholdDB: threshold, SkippedPreRoute: skipped}, nil
 }
 
 func (s *EventService) List(query dto.EventQuery) ([]model.EventMarker, dto.Pagination, error) {

@@ -18,8 +18,12 @@ type TraceCapture struct {
 	DenoiseWindow    int            `gorm:"not null;default:5" json:"denoise_window"`
 	PeakThresholdDB  float64        `gorm:"not null;default:0.8" json:"peak_threshold_db"`
 	MergeWindow      int            `gorm:"not null;default:3" json:"merge_window"`
-	CapturedAt       time.Time      `gorm:"not null;index" json:"captured_at"`
-	UploadedBy       uint           `gorm:"not null;index" json:"uploaded_by"`
-	CreatedAt        time.Time      `json:"created_at"`
-	Route            FiberRoute     `gorm:"foreignKey:RouteID" json:"-"`
+	// 导入时冻结的线路参数快照；历史轨迹可能为空，检测时按 0 偏移和当前线路参数回退。
+	RouteLengthSnapshotM    *float64   `json:"route_length_snapshot_m"`
+	RefractiveIndexSnapshot *float64   `json:"refractive_index_snapshot"`
+	LaunchOffsetSnapshotM   *float64   `json:"launch_offset_snapshot_m"`
+	CapturedAt              time.Time  `gorm:"not null;index" json:"captured_at"`
+	UploadedBy              uint       `gorm:"not null;index" json:"uploaded_by"`
+	CreatedAt               time.Time  `json:"created_at"`
+	Route                   FiberRoute `gorm:"foreignKey:RouteID" json:"-"`
 }

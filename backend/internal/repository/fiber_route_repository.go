@@ -62,7 +62,7 @@ func (r *FiberRouteRepository) List(query dto.RouteQuery) ([]model.FiberRoute, i
 }
 
 func (r *FiberRouteRepository) Update(route *model.FiberRoute) error {
-	result := r.db.Model(&model.FiberRoute{}).Where("id = ?", route.ID).Updates(map[string]any{"name": route.Name, "length_m": route.LengthM, "refractive_index": route.RefractiveIndex, "launch_connector": route.LaunchConnector, "route_status": route.RouteStatus})
+	result := r.db.Model(&model.FiberRoute{}).Where("id = ?", route.ID).Updates(map[string]any{"name": route.Name, "length_m": route.LengthM, "refractive_index": route.RefractiveIndex, "launch_offset_m": route.LaunchOffsetM, "launch_connector": route.LaunchConnector, "route_status": route.RouteStatus})
 	if result.Error != nil {
 		return fmt.Errorf("update fiber route: %w", result.Error)
 	}

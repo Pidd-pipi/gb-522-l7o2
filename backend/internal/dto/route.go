@@ -5,6 +5,7 @@ type CreateRouteRequest struct {
 	Name            string  `json:"name" validate:"required,min=2,max=120"`
 	LengthM         float64 `json:"length_m" validate:"required,gt=0,lte=500000"`
 	RefractiveIndex float64 `json:"refractive_index" validate:"required,gte=1.3,lte=1.7"`
+	LaunchOffsetM   float64 `json:"launch_offset_m" validate:"gte=0,lte=10000"`
 	LaunchConnector string  `json:"launch_connector" validate:"required,min=2,max=80"`
 	RouteStatus     string  `json:"route_status" validate:"omitempty,oneof=active maintenance retired"`
 }
@@ -13,6 +14,7 @@ type UpdateRouteRequest struct {
 	Name            *string  `json:"name" validate:"omitempty,min=2,max=120"`
 	LengthM         *float64 `json:"length_m" validate:"omitempty,gt=0,lte=500000"`
 	RefractiveIndex *float64 `json:"refractive_index" validate:"omitempty,gte=1.3,lte=1.7"`
+	LaunchOffsetM   *float64 `json:"launch_offset_m" validate:"omitempty,gte=0,lte=10000"`
 	LaunchConnector *string  `json:"launch_connector" validate:"omitempty,min=2,max=80"`
 	RouteStatus     *string  `json:"route_status" validate:"omitempty,oneof=active maintenance retired"`
 }

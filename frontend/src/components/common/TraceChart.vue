@@ -9,10 +9,11 @@ const props = withDefaults(defineProps<{
   points: number[]
   sampleIntervalNs: number
   refractiveIndex?: number
+  launchOffset?: number
   events?: EventMarker[]
   noiseFloor?: number
   height?: number
-}>(), { refractiveIndex: 1.468, events: () => [], noiseFloor: 0, height: 360 })
+}>(), { refractiveIndex: 1.468, launchOffset: 0, events: () => [], noiseFloor: 0, height: 360 })
 
 const target = ref<HTMLDivElement>()
 const viewport = useTraceViewport(props.points.length)
@@ -20,7 +21,7 @@ let chart: echarts.ECharts | null = null
 let observer: ResizeObserver | undefined
 
 function distanceAt(index: number) {
-  return Number((299792458 * index * props.sampleIntervalNs * 1e-9 / (2 * props.refractiveIndex)).toFixed(2))
+  return Number((299792458 * index * props.sampleIntervalNs * 1e-9 / (2 * props.refractiveIndex) - props.launchOffset).toFixed(2))
 }
 
 function chartData(): [number, number][] {
@@ -90,7 +91,7 @@ onMounted(async () => {
   if (target.value) observer.observe(target.value)
 })
 onBeforeUnmount(() => { observer?.disconnect(); chart?.dispose() })
-watch(() => [props.points, props.events, props.noiseFloor], render, { deep: true })
+watch(() => [props.points, props.events, props.noiseFloor, props.refractiveIndex, props.launchOffset], render, { deep: true })
 </script>
 
 <template>

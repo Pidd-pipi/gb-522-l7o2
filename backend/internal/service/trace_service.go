@@ -62,17 +62,19 @@ func (s *TraceService) Import(request dto.ImportTraceRequest, actor Actor) (mode
 	if err != nil {
 		return model.TraceCapture{}, invalid("distance conversion failed", err)
 	}
-	if lastDistance < route.LengthM*0.05 {
+	if lastDistance < route.LaunchOffsetM+route.LengthM*0.05 {
 		return model.TraceCapture{}, invalid("trace sampling range covers less than five percent of the route", nil)
 	}
 	raw, _ := json.Marshal(request.Points)
 	processed, _ := json.Marshal(filtered)
-	trace := model.TraceCapture{RouteID: request.RouteID, WavelengthNM: request.WavelengthNM, PulseWidthNS: request.PulseWidthNS, SampleIntervalNS: request.SampleIntervalNS, RawPointsJSON: datatypes.JSON(raw), ProcessedJSON: datatypes.JSON(processed), NoiseFloorDB: noise, CapturedAt: request.CapturedAt, UploadedBy: actor.ID, DenoiseWindow: window, PeakThresholdDB: threshold, MergeWindow: merge}
+	// 冻结导入时的线路参数，后续检测与事件距离均以这份快照换算，线路档案再被修改也不影响旧轨迹。
+	lengthSnapshot, refractiveSnapshot, offsetSnapshot := route.LengthM, route.RefractiveIndex, route.LaunchOffsetM
+	trace := model.TraceCapture{RouteID: request.RouteID, WavelengthNM: request.WavelengthNM, PulseWidthNS: request.PulseWidthNS, SampleIntervalNS: request.SampleIntervalNS, RawPointsJSON: datatypes.JSON(raw), ProcessedJSON: datatypes.JSON(processed), NoiseFloorDB: noise, CapturedAt: request.CapturedAt, UploadedBy: actor.ID, DenoiseWindow: window, PeakThresholdDB: threshold, MergeWindow: merge, RouteLengthSnapshotM: &lengthSnapshot, RefractiveIndexSnapshot: &refractiveSnapshot, LaunchOffsetSnapshotM: &offsetSnapshot}
 	err = s.store.Transaction(func(tx *repository.Store) error {
 		if err := tx.Traces.Create(&trace); err != nil {
 			return err
 		}
-		params := map[string]any{"point_count": len(request.Points), "wavelength_nm": request.WavelengthNM, "denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge}
+		params := map[string]any{"point_count": len(request.Points), "wavelength_nm": request.WavelengthNM, "denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge, "route_length_m": lengthSnapshot, "refractive_index": refractiveSnapshot, "launch_offset_m": offsetSnapshot}
 		return tx.Audits.Create(audit(actor, "trace.imported", "TraceCapture", trace.ID, &route.ID, "{}", snapshot(params)))
 	})
 	if err != nil {
@@ -111,6 +113,6 @@ func (s *TraceService) Get(id uint) (dto.TraceDetail, []model.EventMarker, error
 	if err != nil {
 		return dto.TraceDetail{}, nil, internal("list trace events failed", err)
 	}
-	detail := dto.TraceDetail{ID: trace.ID, RouteID: trace.RouteID, WavelengthNM: trace.WavelengthNM, PulseWidthNS: trace.PulseWidthNS, SampleIntervalNS: trace.SampleIntervalNS, Points: raw, ProcessedPoints: processed, NoiseFloorDB: trace.NoiseFloorDB, DenoiseWindow: trace.DenoiseWindow, PeakThresholdDB: trace.PeakThresholdDB, MergeWindow: trace.MergeWindow, CapturedAt: trace.CapturedAt, UploadedBy: trace.UploadedBy}
+	detail := dto.TraceDetail{ID: trace.ID, RouteID: trace.RouteID, WavelengthNM: trace.WavelengthNM, PulseWidthNS: trace.PulseWidthNS, SampleIntervalNS: trace.SampleIntervalNS, Points: raw, ProcessedPoints: processed, NoiseFloorDB: trace.NoiseFloorDB, DenoiseWindow: trace.DenoiseWindow, PeakThresholdDB: trace.PeakThresholdDB, MergeWindow: trace.MergeWindow, RouteLengthSnapshotM: trace.RouteLengthSnapshotM, RefractiveIndexSnapshot: trace.RefractiveIndexSnapshot, LaunchOffsetSnapshotM: trace.LaunchOffsetSnapshotM, CapturedAt: trace.CapturedAt, UploadedBy: trace.UploadedBy}
 	return detail, events, nil
 }

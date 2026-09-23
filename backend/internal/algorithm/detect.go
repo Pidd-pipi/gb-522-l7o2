@@ -23,6 +23,18 @@ type DetectedEvent struct {
 	Confidence      float64             `json:"confidence"`
 }
 
+// OutOfBoundsError 表示换算后有事件落在线路长度之外。检测必须整体拒绝而不是静默丢弃，
+// 由调用方保留此前的轨迹与事件结果。
+type OutOfBoundsError struct {
+	Index        int     `json:"index"`
+	DistanceM    float64 `json:"distance_m"`
+	RouteLengthM float64 `json:"route_length_m"`
+}
+
+func (e *OutOfBoundsError) Error() string {
+	return fmt.Sprintf("event at sample %d resolves to %.2f m, beyond the %.2f m route", e.Index, e.DistanceM, e.RouteLengthM)
+}
+
 func EstimateNoiseFloor(points []float64) (float64, error) {
 	if len(points) < 16 {
 		return 0, fmt.Errorf("at least 16 samples are required for noise estimation")
@@ -97,7 +109,10 @@ func ClassifyPeak(peak Peak, points []float64, noiseFloor, threshold float64) (c
 	return eventType, round(loss), round(reflectance), round(confidence)
 }
 
-func Detect(points []float64, threshold float64, mergeWindow int, sampleIntervalNS, refractiveIndex, routeLength float64) ([]DetectedEvent, int, error) {
+// Detect 按导入时冻结的折射率与发射端偏移把峰位换算为线路距离。
+// 落在发射端尾纤内（负距离）的峰跳过并计数；超过线路长度时返回 *OutOfBoundsError，
+// 且不返回任何事件，以保证旧检测结果得以保留。
+func Detect(points []float64, threshold float64, mergeWindow int, sampleIntervalNS, refractiveIndex, launchOffsetM, routeLength float64) ([]DetectedEvent, int, error) {
 	noise, err := EstimateNoiseFloor(points)
 	if err != nil {
 		return nil, 0, err
@@ -110,20 +125,23 @@ func Detect(points []float64, threshold float64, mergeWindow int, sampleInterval
 	if err != nil {
 		return nil, 0, err
 	}
-	events, rejected := make([]DetectedEvent, 0, len(peaks)), 0
+	events, skippedPreRoute := make([]DetectedEvent, 0, len(peaks)), 0
 	for _, peak := range peaks {
-		distance, err := SampleDistance(peak.Index, sampleIntervalNS, refractiveIndex)
+		distance, err := RouteDistance(peak.Index, sampleIntervalNS, refractiveIndex, launchOffsetM)
 		if err != nil {
-			return nil, rejected, err
+			return nil, skippedPreRoute, err
 		}
-		if !ValidRouteDistance(distance, routeLength) {
-			rejected++
+		if distance < 0 {
+			skippedPreRoute++
 			continue
+		}
+		if distance > routeLength {
+			return nil, skippedPreRoute, &OutOfBoundsError{Index: peak.Index, DistanceM: distance, RouteLengthM: routeLength}
 		}
 		typeValue, loss, reflectance, confidence := ClassifyPeak(peak, points, noise, threshold)
 		events = append(events, DetectedEvent{peak.Index, distance, typeValue, loss, reflectance, confidence})
 	}
-	return events, rejected, nil
+	return events, skippedPreRoute, nil
 }
 
 func round(value float64) float64 { return math.Round(value*1000) / 1000 }
