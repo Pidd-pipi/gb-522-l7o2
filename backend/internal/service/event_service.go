@@ -28,6 +28,7 @@ func (s *EventService) Detect(traceID uint, request dto.DetectEventsRequest, act
 	if err != nil {
 		return dto.DetectionSummary{}, internal("get trace route failed", err)
 	}
+	params := effectiveConversionParams(trace, route)
 	var raw []float64
 	if err := json.Unmarshal(trace.RawPointsJSON, &raw); err != nil {
 		return dto.DetectionSummary{}, internal("decode raw trace failed", err)
@@ -61,9 +62,12 @@ func (s *EventService) Detect(traceID uint, request dto.DetectEventsRequest, act
 	if err != nil {
 		return dto.DetectionSummary{}, &AppError{CodeAlgorithmInput, 422, "noise floor estimation failed", err}
 	}
-	detected, rejected, err := algorithm.Detect(filtered, threshold, merge, trace.SampleIntervalNS, route.RefractiveIndex, route.LengthM)
+	detected, rejected, err := algorithm.Detect(filtered, threshold, merge, trace.SampleIntervalNS, params.RefractiveIndex, params.LaunchOffsetM, params.LengthM)
 	if err != nil {
-		return dto.DetectionSummary{}, &AppError{CodeAlgorithmInput, 422, "event detection failed", err}
+		// Reject the whole detection run and keep the previous processing
+		// result and events: at least one converted event lies beyond the
+		// route length stored in the trace snapshot.
+		return dto.DetectionSummary{}, &AppError{CodeAlgorithmInput, 422, "detection rejected: a converted event exceeds the snapshot route length", err}
 	}
 	events := make([]model.EventMarker, 0, len(detected))
 	for _, item := range detected {
@@ -77,8 +81,8 @@ func (s *EventService) Detect(traceID uint, request dto.DetectEventsRequest, act
 		if err := tx.Events.ReplaceForTrace(trace.ID, events); err != nil {
 			return err
 		}
-		params := map[string]any{"denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge, "noise_floor_db": noise, "detected": len(events), "rejected_out_of_bounds": rejected}
-		return tx.Audits.Create(audit(actor, "trace.events_detected", "TraceCapture", trace.ID, &route.ID, "{}", snapshot(params)))
+		auditParams := map[string]any{"denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge, "noise_floor_db": noise, "detected": len(events), "rejected_out_of_bounds": rejected, "snapshot_length_m": params.LengthM, "snapshot_refractive_index": params.RefractiveIndex, "snapshot_launch_offset_m": params.LaunchOffsetM}
+		return tx.Audits.Create(audit(actor, "trace.events_detected", "TraceCapture", trace.ID, &route.ID, "{}", snapshot(auditParams)))
 	})
 	if err != nil {
 		return dto.DetectionSummary{}, internal("save detected events failed", err)
@@ -114,13 +118,14 @@ func (s *EventService) Review(id uint, request dto.ReviewEventRequest, actor Act
 	if err != nil {
 		return event, internal("get event route failed", err)
 	}
+	params := effectiveConversionParams(trace, route)
 	before := event
 	event.EventType = request.EventType
 	if request.DistanceM != nil {
 		event.DistanceM = *request.DistanceM
 	}
-	if event.DistanceM > route.LengthM {
-		return event, invalid("reviewed distance exceeds route length", nil)
+	if event.DistanceM > params.LengthM {
+		return event, invalid("reviewed distance exceeds the snapshot route length", nil)
 	}
 	now := time.Now()
 	event.Reviewed = true

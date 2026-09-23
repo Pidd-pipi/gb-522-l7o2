@@ -71,6 +71,23 @@ func (h *FiberRouteHandler) Update(c *gin.Context) {
 	ok(c, http.StatusOK, item, nil)
 }
 
+func (h *FiberRouteHandler) UpdateLaunchOffset(c *gin.Context) {
+	id, valid := idParam(c)
+	if !valid {
+		return
+	}
+	var request dto.UpdateLaunchOffsetRequest
+	if !bind(c, h.validate, &request) {
+		return
+	}
+	item, err := h.service.UpdateLaunchOffset(id, request, actor(c))
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	ok(c, http.StatusOK, item, nil)
+}
+
 func (h *FiberRouteHandler) SetBaseline(c *gin.Context) {
 	id, valid := idParam(c)
 	if !valid {

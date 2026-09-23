@@ -97,7 +97,7 @@ func ClassifyPeak(peak Peak, points []float64, noiseFloor, threshold float64) (c
 	return eventType, round(loss), round(reflectance), round(confidence)
 }
 
-func Detect(points []float64, threshold float64, mergeWindow int, sampleIntervalNS, refractiveIndex, routeLength float64) ([]DetectedEvent, int, error) {
+func Detect(points []float64, threshold float64, mergeWindow int, sampleIntervalNS, refractiveIndex, launchOffsetM, routeLength float64) ([]DetectedEvent, int, error) {
 	noise, err := EstimateNoiseFloor(points)
 	if err != nil {
 		return nil, 0, err
@@ -112,13 +112,17 @@ func Detect(points []float64, threshold float64, mergeWindow int, sampleInterval
 	}
 	events, rejected := make([]DetectedEvent, 0, len(peaks)), 0
 	for _, peak := range peaks {
-		distance, err := SampleDistance(peak.Index, sampleIntervalNS, refractiveIndex)
+		distance, err := RouteDistance(peak.Index, sampleIntervalNS, refractiveIndex, launchOffsetM)
 		if err != nil {
 			return nil, rejected, err
 		}
-		if !ValidRouteDistance(distance, routeLength) {
+		if distance < 0 {
+			// Event sits inside the launch pigtail/lead before the route origin.
 			rejected++
 			continue
+		}
+		if distance > routeLength {
+			return nil, rejected, fmt.Errorf("event at %.2f m exceeds the route length of %.2f m", distance, routeLength)
 		}
 		typeValue, loss, reflectance, confidence := ClassifyPeak(peak, points, noise, threshold)
 		events = append(events, DetectedEvent{peak.Index, distance, typeValue, loss, reflectance, confidence})

@@ -26,6 +26,22 @@ func ValidRouteDistance(distance, routeLength float64) bool {
 	return !math.IsNaN(distance) && !math.IsInf(distance, 0) && distance >= 0 && distance <= routeLength
 }
 
+// RouteDistance converts an OTDR sample index to the distance from the route
+// origin. The launch offset is the fiber distance between the OTDR port and the
+// route origin (launch pigtail/cable), so it is subtracted from the raw OTDR
+// distance.
+func RouteDistance(index int, sampleIntervalNS, refractiveIndex, launchOffsetM float64) (float64, error) {
+	raw, err := SampleDistance(index, sampleIntervalNS, refractiveIndex)
+	if err != nil {
+		return 0, err
+	}
+	distance := raw - launchOffsetM
+	if math.IsNaN(distance) || math.IsInf(distance, 0) {
+		return 0, fmt.Errorf("route distance is not finite")
+	}
+	return math.Round(distance*100) / 100, nil
+}
+
 func DistanceUncertainty(sampleIntervalNS, refractiveIndex float64, mergeWindow int) (float64, error) {
 	if mergeWindow < 1 {
 		return 0, fmt.Errorf("merge window must be positive")

@@ -12,5 +12,6 @@ func registerFiberRoutes(api *gin.RouterGroup, deps Dependencies) {
 	routes.GET("/:id", deps.RouteHandler.Get)
 	routes.POST("", appmw.RBACMiddleware(constants.RoleAnalyst, constants.RoleAdmin), deps.RouteHandler.Create)
 	routes.PATCH("/:id", appmw.RBACMiddleware(constants.RoleAnalyst, constants.RoleAdmin), deps.RouteHandler.Update)
+	routes.PATCH("/:id/launch-offset", appmw.RBACMiddleware(constants.RoleAnalyst, constants.RoleReviewer, constants.RoleAdmin), deps.RouteHandler.UpdateLaunchOffset)
 	routes.POST("/:id/baseline", appmw.RBACMiddleware(constants.RoleReviewer, constants.RoleAdmin), deps.RouteHandler.SetBaseline)
 }

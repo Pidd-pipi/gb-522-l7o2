@@ -13,6 +13,7 @@ type traceFixture struct {
 	MergeWindow            int       `json:"merge_window"`
 	SampleIntervalNS       float64   `json:"sample_interval_ns"`
 	RefractiveIndex        float64   `json:"refractive_index"`
+	LaunchOffsetM          float64   `json:"launch_offset_m"`
 	RouteLengthM           float64   `json:"route_length_m"`
 	ExpectedEventCount     int       `json:"expected_event_count"`
 	ExpectedFirstDistanceM float64   `json:"expected_first_distance_m"`
@@ -31,7 +32,7 @@ func TestPipelineFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("denoise fixture: %v", err)
 	}
-	events, rejected, err := Detect(filtered, fixture.Threshold, fixture.MergeWindow, fixture.SampleIntervalNS, fixture.RefractiveIndex, fixture.RouteLengthM)
+	events, rejected, err := Detect(filtered, fixture.Threshold, fixture.MergeWindow, fixture.SampleIntervalNS, fixture.RefractiveIndex, fixture.LaunchOffsetM, fixture.RouteLengthM)
 	if err != nil {
 		t.Fatalf("detect fixture: %v", err)
 	}

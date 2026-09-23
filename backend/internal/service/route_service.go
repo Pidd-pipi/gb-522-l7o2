@@ -20,7 +20,7 @@ func (s *RouteService) Create(request dto.CreateRouteRequest, actor Actor) (mode
 	if status == "" {
 		status = "active"
 	}
-	route := model.FiberRoute{RouteCode: strings.ToUpper(strings.TrimSpace(request.RouteCode)), Name: strings.TrimSpace(request.Name), LengthM: request.LengthM, RefractiveIndex: request.RefractiveIndex, LaunchConnector: strings.TrimSpace(request.LaunchConnector), RouteStatus: status}
+	route := model.FiberRoute{RouteCode: strings.ToUpper(strings.TrimSpace(request.RouteCode)), Name: strings.TrimSpace(request.Name), LengthM: request.LengthM, RefractiveIndex: request.RefractiveIndex, LaunchOffsetM: request.LaunchOffsetM, LaunchConnector: strings.TrimSpace(request.LaunchConnector), RouteStatus: status}
 	err := s.store.Transaction(func(tx *repository.Store) error {
 		if _, err := tx.Routes.GetByCode(route.RouteCode); err == nil {
 			return conflict("route code already exists", err)
@@ -85,6 +85,9 @@ func (s *RouteService) Update(id uint, request dto.UpdateRouteRequest, actor Act
 	if request.RefractiveIndex != nil {
 		after.RefractiveIndex = *request.RefractiveIndex
 	}
+	if request.LaunchOffsetM != nil {
+		after.LaunchOffsetM = *request.LaunchOffsetM
+	}
 	if request.LaunchConnector != nil {
 		after.LaunchConnector = strings.TrimSpace(*request.LaunchConnector)
 	}
@@ -99,6 +102,32 @@ func (s *RouteService) Update(id uint, request dto.UpdateRouteRequest, actor Act
 	})
 	if err != nil {
 		return after, internal("update route failed", err)
+	}
+	return after, nil
+}
+
+// UpdateLaunchOffset changes only the launch end offset. Reviewers use this
+// when the launch pigtail/cable changes; existing trace snapshots are not
+// affected because event distances are converted from each trace's snapshot.
+func (s *RouteService) UpdateLaunchOffset(id uint, request dto.UpdateLaunchOffsetRequest, actor Actor) (model.FiberRoute, error) {
+	before, err := s.store.Routes.Get(id)
+	if errors.Is(err, repository.ErrNotFound) {
+		return before, notFound("route")
+	}
+	if err != nil {
+		return before, internal("get route failed", err)
+	}
+	beforeSnapshot := snapshot(map[string]any{"launch_offset_m": before.LaunchOffsetM})
+	after := before
+	after.LaunchOffsetM = request.LaunchOffsetM
+	err = s.store.Transaction(func(tx *repository.Store) error {
+		if err := tx.Routes.Update(&after); err != nil {
+			return err
+		}
+		return tx.Audits.Create(audit(actor, "route.launch_offset_updated", "FiberRoute", id, &id, beforeSnapshot, snapshot(map[string]any{"launch_offset_m": after.LaunchOffsetM})))
+	})
+	if err != nil {
+		return after, internal("update launch offset failed", err)
 	}
 	return after, nil
 }

@@ -62,17 +62,17 @@ func (s *TraceService) Import(request dto.ImportTraceRequest, actor Actor) (mode
 	if err != nil {
 		return model.TraceCapture{}, invalid("distance conversion failed", err)
 	}
-	if lastDistance < route.LengthM*0.05 {
+	if lastDistance-route.LaunchOffsetM < route.LengthM*0.05 {
 		return model.TraceCapture{}, invalid("trace sampling range covers less than five percent of the route", nil)
 	}
 	raw, _ := json.Marshal(request.Points)
 	processed, _ := json.Marshal(filtered)
-	trace := model.TraceCapture{RouteID: request.RouteID, WavelengthNM: request.WavelengthNM, PulseWidthNS: request.PulseWidthNS, SampleIntervalNS: request.SampleIntervalNS, RawPointsJSON: datatypes.JSON(raw), ProcessedJSON: datatypes.JSON(processed), NoiseFloorDB: noise, CapturedAt: request.CapturedAt, UploadedBy: actor.ID, DenoiseWindow: window, PeakThresholdDB: threshold, MergeWindow: merge}
+	trace := model.TraceCapture{RouteID: request.RouteID, WavelengthNM: request.WavelengthNM, PulseWidthNS: request.PulseWidthNS, SampleIntervalNS: request.SampleIntervalNS, SnapshotLengthM: route.LengthM, SnapshotRefractiveIndex: route.RefractiveIndex, SnapshotLaunchOffsetM: route.LaunchOffsetM, RawPointsJSON: datatypes.JSON(raw), ProcessedJSON: datatypes.JSON(processed), NoiseFloorDB: noise, CapturedAt: request.CapturedAt, UploadedBy: actor.ID, DenoiseWindow: window, PeakThresholdDB: threshold, MergeWindow: merge}
 	err = s.store.Transaction(func(tx *repository.Store) error {
 		if err := tx.Traces.Create(&trace); err != nil {
 			return err
 		}
-		params := map[string]any{"point_count": len(request.Points), "wavelength_nm": request.WavelengthNM, "denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge}
+		params := map[string]any{"point_count": len(request.Points), "wavelength_nm": request.WavelengthNM, "denoise_window": window, "peak_threshold_db": threshold, "merge_window": merge, "snapshot_length_m": route.LengthM, "snapshot_refractive_index": route.RefractiveIndex, "snapshot_launch_offset_m": route.LaunchOffsetM}
 		return tx.Audits.Create(audit(actor, "trace.imported", "TraceCapture", trace.ID, &route.ID, "{}", snapshot(params)))
 	})
 	if err != nil {
@@ -111,6 +111,6 @@ func (s *TraceService) Get(id uint) (dto.TraceDetail, []model.EventMarker, error
 	if err != nil {
 		return dto.TraceDetail{}, nil, internal("list trace events failed", err)
 	}
-	detail := dto.TraceDetail{ID: trace.ID, RouteID: trace.RouteID, WavelengthNM: trace.WavelengthNM, PulseWidthNS: trace.PulseWidthNS, SampleIntervalNS: trace.SampleIntervalNS, Points: raw, ProcessedPoints: processed, NoiseFloorDB: trace.NoiseFloorDB, DenoiseWindow: trace.DenoiseWindow, PeakThresholdDB: trace.PeakThresholdDB, MergeWindow: trace.MergeWindow, CapturedAt: trace.CapturedAt, UploadedBy: trace.UploadedBy}
+	detail := dto.TraceDetail{ID: trace.ID, RouteID: trace.RouteID, WavelengthNM: trace.WavelengthNM, PulseWidthNS: trace.PulseWidthNS, SampleIntervalNS: trace.SampleIntervalNS, SnapshotLengthM: trace.SnapshotLengthM, SnapshotRefractiveIndex: trace.SnapshotRefractiveIndex, SnapshotLaunchOffsetM: trace.SnapshotLaunchOffsetM, Points: raw, ProcessedPoints: processed, NoiseFloorDB: trace.NoiseFloorDB, DenoiseWindow: trace.DenoiseWindow, PeakThresholdDB: trace.PeakThresholdDB, MergeWindow: trace.MergeWindow, CapturedAt: trace.CapturedAt, UploadedBy: trace.UploadedBy}
 	return detail, events, nil
 }

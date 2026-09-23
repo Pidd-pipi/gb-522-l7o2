@@ -28,8 +28,8 @@ docker compose down -v --remove-orphans
 
 ## 功能
 
-- 线路档案：校验线路长度和折射率，查看历史轨迹，由 reviewer/admin 设置基线。
-- 轨迹分析：导入离线采样，记录去噪窗口、检测阈值和合并窗口，缩放真实 API 曲线。
+- 线路档案：校验线路长度、折射率和发射端偏移，查看历史轨迹，由 reviewer/admin 设置基线。
+- 轨迹分析：导入离线采样时固化长度、折射率与发射端偏移快照，事件距离按快照换算，记录去噪窗口、检测阈值和合并窗口，缩放真实 API 曲线。
 - 事件复核：按线路、类型和复核状态筛选，保留算法原值并单独保存人工修订。
 - 定位案例：执行基线差异比较，按 `draft -> analyzing -> pending_review -> confirmed -> closed` 流转。
 - 不可变审计：记录轨迹导入、基线变更、算法参数、事件修订、案例确认和关闭，携带 request ID 与前后值摘要。
@@ -77,6 +77,7 @@ frontend/src/pages                 五个业务页与登录页
 | `POST` | `/api/v1/auth/login` | 登录 |
 | `GET/POST` | `/api/v1/routes` | 线路列表/新建 |
 | `GET/PATCH` | `/api/v1/routes/:id` | 线路详情/编辑 |
+| `PATCH` | `/api/v1/routes/:id/launch-offset` | analyst/reviewer 修正发射端偏移 |
 | `POST` | `/api/v1/routes/:id/baseline` | 设置基线 |
 | `GET` | `/api/v1/traces` | 轨迹列表 |
 | `POST` | `/api/v1/traces/import` | 导入采样点 |
@@ -112,7 +113,7 @@ frontend/src/pages                 五个业务页与登录页
 1. 移动中值去噪：对每个采样使用最多 31 点的奇数窗口，边界处截断窗口。
 2. 噪声底：取轨迹尾部 20% 样本的中位数。
 3. 事件检测：一阶差分绝对值超过阈值的点为峰值，连续峰按窗口合并为幅度最大的一点。
-4. 距离公式：`distance = c * sample_index * sample_interval_ns * 1e-9 / (2 * refractive_index)`，其中 `c = 299792458 m/s`。超过线路长度的候选事件被拒绝。
+4. 距离公式：OTDR 原始距离 `distance_raw = c * sample_index * sample_interval_ns * 1e-9 / (2 * refractive_index)`，线路距离 = `distance_raw - launch_offset_m`（发射端尾纤/引线段长度），其中 `c = 299792458 m/s`。导入采样时把当时线路的长度、折射率和发射端偏移快照存入轨迹；检测、复核与图表一律按该轨迹快照换算，之后修改线路参数不影响已有轨迹、事件和案例。落在发射引线内（换算距离 < 0）的候选事件被跳过；换算后有事件超过快照线路长度时整次检测拒绝（422）并保留上一轮事件与处理结果。缺少快照的旧轨迹按发射端偏移 0 处理。
 5. 基线比对：在距离容差内一对一最近匹配，输出新增、消失和损耗增大三类差异与置信度。
 
 状态迁移使用条件更新和 `version` 乐观锁。分析失败回到 `draft` 并保存错误；只有 reviewer/admin 能确认；关闭后不可修改。登录、轨迹导入和分析使用本地内存限流。访问日志不记录 JWT、密码、请求体或完整采样数组。
